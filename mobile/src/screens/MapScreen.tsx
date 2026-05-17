@@ -1,18 +1,20 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import {
-  View, StyleSheet, TouchableOpacity, Text, Animated, Dimensions,
-} from 'react-native';
-import MapView, { Marker, Circle, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../store/appStore';
 import { useDrops } from '../hooks/useDrops';
-import { colors, spacing, radii } from '../theme';
+import { colors, radii, spacing, type, shadows } from '../theme';
+import { IconButton } from '../ui';
 import type { Drop } from '../types';
 import DropDetailSheet from '../components/DropDetailSheet';
-import { useNavigation } from '@react-navigation/native';
+import LocationDeniedBanner from '../components/LocationDeniedBanner';
 
 const PICKUP_RANGE = 50;
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const VOTD_VERSES = [
   { ref: 'Psalm 118:24', text: 'This is the day which the LORD hath made; we will rejoice and be glad in it.' },
@@ -31,6 +33,7 @@ function getVotd() {
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
+  const insets = useSafeAreaInsets();
   const userLocation = useAppStore((s) => s.userLocation);
   const nearbyDrops = useAppStore((s) => s.nearbyDrops);
   const selectedDrop = useAppStore((s) => s.selectedDrop);
@@ -41,7 +44,6 @@ export default function MapScreen() {
   const { refresh } = useDrops();
   const votd = getVotd();
 
-  // Center map on first location fix
   useEffect(() => {
     if (userLocation && mapRef.current && !centeredOnce) {
       mapRef.current.animateToRegion({
@@ -56,6 +58,7 @@ export default function MapScreen() {
 
   const handleRecenter = useCallback(() => {
     if (userLocation && mapRef.current) {
+      Haptics.selectionAsync();
       mapRef.current.animateToRegion({
         latitude: userLocation.lat,
         longitude: userLocation.lng,
@@ -81,6 +84,7 @@ export default function MapScreen() {
   const inRangeCount = nearbyDrops.filter(
     (d) => (d.distance_meters ?? Infinity) <= PICKUP_RANGE && !d.is_picked_up
   ).length;
+  const nearbyActive = nearbyDrops.filter(d => !d.is_picked_up).length;
 
   return (
     <View style={styles.container}>
@@ -99,14 +103,13 @@ export default function MapScreen() {
           longitudeDelta: 0.01,
         }}
       >
-        {/* User location marker */}
         {userLocation && (
           <>
             <Circle
               center={{ latitude: userLocation.lat, longitude: userLocation.lng }}
-              radius={200}
-              fillColor="rgba(212, 162, 69, 0.04)"
-              strokeColor="rgba(212, 162, 69, 0.15)"
+              radius={50}
+              fillColor="rgba(212,168,87,0.10)"
+              strokeColor="rgba(212,168,87,0.35)"
               strokeWidth={1}
             />
             <Marker
@@ -115,14 +118,13 @@ export default function MapScreen() {
               tracksViewChanges={false}
             >
               <View style={styles.userMarker}>
-                <View style={styles.userMarkerOuter} />
+                <View style={styles.userMarkerHalo} />
                 <View style={styles.userMarkerInner} />
               </View>
             </Marker>
           </>
         )}
 
-        {/* Drop orbs */}
         {nearbyDrops.map((drop) => {
           const isPickedUp = drop.is_picked_up;
           const isInRange = (drop.distance_meters ?? Infinity) <= PICKUP_RANGE;
@@ -134,14 +136,10 @@ export default function MapScreen() {
               onPress={() => handleOrbPress(drop)}
               tracksViewChanges={false}
             >
-              <View style={[
-                styles.orbContainer,
-                isPickedUp && styles.orbPickedUp,
-                isInRange && !isPickedUp && styles.orbInRange,
-              ]}>
+              <View style={styles.orbContainer}>
                 <View style={[
                   styles.orb,
-                  isPickedUp ? styles.orbGray : styles.orbGold,
+                  isPickedUp ? styles.orbDim : styles.orbGold,
                   isInRange && !isPickedUp && styles.orbGlow,
                 ]} />
               </View>
@@ -150,52 +148,67 @@ export default function MapScreen() {
         })}
       </MapView>
 
-      {/* Header branding */}
-      <View style={styles.header} pointerEvents="none">
-        <Text style={styles.brand}>VERSEDROP</Text>
+      {/* Top bar — translucent over the map */}
+      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
+        <BlurView intensity={70} tint="dark" style={styles.topBarBlur}>
+          <Text style={styles.brand}>VerseDrop</Text>
+          {nearbyDrops.length > 0 ? (
+            <View style={styles.statRow}>
+              <View style={styles.dot} />
+              <Text style={styles.statText}>
+                <Text style={styles.statValue}>{nearbyActive}</Text> nearby
+                {inRangeCount > 0 ? <Text>  ·  <Text style={styles.statValueGold}>{inRangeCount}</Text> in range</Text> : null}
+              </Text>
+            </View>
+          ) : null}
+        </BlurView>
       </View>
 
       {/* Verse of the Day */}
       {showVotd && (
-        <View style={styles.votdCard}>
-          <TouchableOpacity style={styles.votdClose} onPress={() => setShowVotd(false)}>
-            <Text style={styles.votdCloseText}>x</Text>
-          </TouchableOpacity>
-          <Text style={styles.votdLabel}>VERSE OF THE DAY</Text>
+        <View
+          style={[styles.votdCard, { top: insets.top + 86 }]}
+          accessible
+          accessibilityLabel={`Verse of the Day. ${votd.text} ${votd.ref}`}
+        >
+          <View style={styles.votdHeader}>
+            <Text style={styles.votdLabel}>VERSE OF THE DAY</Text>
+            <Pressable
+              onPress={() => setShowVotd(false)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss verse of the day"
+            >
+              <Ionicons name="close" size={16} color={colors.textMuted} />
+            </Pressable>
+          </View>
           <Text style={styles.votdText}>&ldquo;{votd.text}&rdquo;</Text>
-          <Text style={styles.votdRef}>&mdash; {votd.ref}</Text>
+          <Text style={styles.votdRef}>{votd.ref}</Text>
         </View>
       )}
 
-      {/* Bottom controls */}
-      <View style={styles.bottomControls}>
-        <TouchableOpacity style={styles.controlBtn} onPress={handleRecenter}>
-          <Text style={styles.controlIcon}>+</Text>
-        </TouchableOpacity>
-
-        {nearbyDrops.length > 0 && (
-          <View style={styles.nearbyBadge}>
-            <View style={styles.nearbyDot} />
-            <Text style={styles.nearbyText}>
-              {nearbyDrops.filter(d => !d.is_picked_up).length} nearby
-            </Text>
-            {inRangeCount > 0 && (
-              <Text style={styles.nearbyInRange}> · {inRangeCount} in range</Text>
-            )}
-          </View>
-        )}
+      {/* Bottom-left: recenter */}
+      <View style={[styles.leftControls, { bottom: insets.bottom + 110 }]} pointerEvents="box-none">
+        <IconButton
+          icon="locate"
+          onPress={handleRecenter}
+          accessibilityLabel="Re-center map on my location"
+          size={48}
+        />
       </View>
 
       {/* FAB - Drop a Verse */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('DropComposer')}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+      <View style={[styles.fabWrapper, { bottom: insets.bottom + 110 }]} pointerEvents="box-none">
+        <IconButton
+          icon="add"
+          onPress={() => navigation.navigate('DropComposer')}
+          accessibilityLabel="Drop a new verse at your location"
+          size={60}
+          variant="solid"
+          iconSize={30}
+        />
+      </View>
 
-      {/* Bottom Sheet */}
       {selectedDrop && (
         <DropDetailSheet
           drop={selectedDrop}
@@ -203,6 +216,8 @@ export default function MapScreen() {
           onPickedUp={refresh}
         />
       )}
+
+      <LocationDeniedBanner />
     </View>
   );
 }
@@ -211,109 +226,93 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   map: { flex: 1 },
 
-  header: {
+  topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    paddingTop: 54, paddingBottom: 12,
+    paddingHorizontal: spacing.lg,
+  },
+  topBarBlur: {
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    ...shadows.md,
   },
   brand: {
-    fontSize: 13, fontWeight: '700', letterSpacing: 3,
-    color: colors.gold, opacity: 0.7,
+    ...type.headline,
+    color: colors.text,
+    letterSpacing: -0.2,
   },
+  statRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.gold },
+  statText: { ...type.footnote, color: colors.textSecondary },
+  statValue: { color: colors.text, fontWeight: '600' as const },
+  statValueGold: { color: colors.gold, fontWeight: '700' as const },
 
   votdCard: {
-    position: 'absolute', top: 90, left: 16, right: 16,
-    maxWidth: 360,
-    backgroundColor: colors.card, borderRadius: radii.lg,
-    padding: 14, paddingRight: 36,
-    borderWidth: 1, borderColor: colors.border,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12,
-    elevation: 8,
+    position: 'absolute', left: spacing.lg, right: spacing.lg,
+    maxWidth: 420,
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
+    ...shadows.lg,
   },
-  votdClose: {
-    position: 'absolute', top: 8, right: 8,
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
+  votdHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
   },
-  votdCloseText: { color: colors.textSecondary, fontSize: 12 },
-  votdLabel: {
-    fontSize: 10, fontWeight: '700', letterSpacing: 1.5,
-    color: colors.gold, marginBottom: 6,
-  },
-  votdText: { fontSize: 13, lineHeight: 19, color: colors.text, fontStyle: 'italic', marginBottom: 4 },
-  votdRef: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+  votdLabel: { ...type.caption2, color: colors.gold, letterSpacing: 1 },
+  votdText: { ...type.callout, color: colors.text, fontStyle: 'italic', marginBottom: spacing.xs },
+  votdRef: { ...type.footnote, color: colors.textSecondary, fontWeight: '600' as const },
 
-  bottomControls: {
-    position: 'absolute', bottom: 100, left: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+  leftControls: {
+    position: 'absolute', left: spacing.lg,
   },
-  controlBtn: {
-    width: 40, height: 40, borderRadius: radii.md,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 8,
-    elevation: 4,
+  fabWrapper: {
+    position: 'absolute', right: spacing.lg,
   },
-  controlIcon: { color: colors.textSecondary, fontSize: 18, fontWeight: '300' },
-
-  nearbyBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.card, borderRadius: radii.full,
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  nearbyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.gold },
-  nearbyText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-  nearbyInRange: { fontSize: 12, fontWeight: '600', color: colors.gold },
-
-  fab: {
-    position: 'absolute', bottom: 100, right: 16,
-    width: 52, height: 52, borderRadius: radii.lg,
-    backgroundColor: colors.gold,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.gold, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12,
-    elevation: 8,
-  },
-  fabIcon: { color: colors.white, fontSize: 26, fontWeight: '300' },
 
   userMarker: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  userMarkerOuter: {
-    position: 'absolute', width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(212, 162, 69, 0.15)',
+  userMarkerHalo: {
+    position: 'absolute', width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(212,168,87,0.18)',
   },
   userMarkerInner: {
-    width: 14, height: 14, borderRadius: 7,
-    backgroundColor: colors.gold, borderWidth: 3, borderColor: colors.bg,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: colors.gold,
+    borderWidth: 3, borderColor: colors.bg,
   },
 
-  orbContainer: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  orb: { width: 20, height: 20, borderRadius: 10 },
+  orbContainer: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  orb: { width: 18, height: 18, borderRadius: 9 },
   orbGold: {
     backgroundColor: colors.gold,
-    shadowColor: colors.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8,
-    elevation: 4,
+    shadowColor: colors.gold, shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5, shadowRadius: 6, elevation: 4,
   },
-  orbGray: { backgroundColor: '#3F3F46', opacity: 0.4 },
+  orbDim: { backgroundColor: '#3A3A42', opacity: 0.55 },
   orbGlow: {
-    shadowColor: colors.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 16,
-    elevation: 8,
+    shadowColor: colors.gold, shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.85, shadowRadius: 14, elevation: 8,
   },
-  orbPickedUp: { opacity: 0.5 },
-  orbInRange: {},
 });
 
-// Google Maps dark style
 const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#6a6a7a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2a3a' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1a1a28' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#5a5a6a' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e0e1a' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1e1e2e' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#5a5a6a' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1a2a1a' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1e1e2e' }] },
+  { elementType: 'geometry', stylers: [{ color: '#15151B' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#15151B' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#6A6A75' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#22222B' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#15151B' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#52525B' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0A0A10' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1B1B22' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#52525B' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1A2218' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1B1B22' }] },
 ];

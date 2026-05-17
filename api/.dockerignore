@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+.DS_Store
+.git
+.gitignore
+Dockerfile
+.dockerignore
+# Note: README.md and data/translations/README.md are intentionally NOT ignored
+# — the bibles loader uses _manifest.json + per-translation JSONs in data/.

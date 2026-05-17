@@ -1,8 +1,15 @@
-import { Router, Request, Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/client';
+import { moderateText } from '../moderation';
+import { notifyDropPickedUp } from '../notify';
+import { isKnownTranslation, getDefaultTranslation } from '../bibles';
+import notesRouter from './notes';
 
 const router = Router();
+
+// Mount notes under /drops/:id/note(s)
+router.use('/', notesRouter);
 
 // Validation schemas
 const nearbyQuerySchema = z.object({
@@ -14,6 +21,7 @@ const nearbyQuerySchema = z.object({
 const createDropSchema = z.object({
   verse_reference: z.string().min(1).max(50),
   verse_text: z.string().min(1).max(500),
+  verse_translation: z.string().min(1).max(16).optional(),
   custom_message: z.string().max(280).optional(),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -38,10 +46,11 @@ router.get('/nearby', async (req: Request, res: Response) => {
 
     const { lat, lng, radius_meters } = parsed.data;
 
-    // Get nearby drops with distance and pickup status
+    // Get nearby drops with distance and pickup status.
+    // Filters out drops authored by users the requester has blocked.
     const dropsResult = await pool.query(
       `SELECT
-        d.id, d.user_token, d.verse_reference, d.verse_text, d.custom_message,
+        d.id, d.user_token, d.verse_reference, d.verse_text, d.verse_translation, d.custom_message,
         d.pickup_count, d.created_at, d.moderation_status,
         ST_Distance(d.location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) as distance_meters,
         EXISTS(
@@ -57,6 +66,10 @@ router.get('/nearby', async (req: Request, res: Response) => {
         $4
       )
       AND d.moderation_status = 'approved'
+      AND NOT EXISTS (
+        SELECT 1 FROM user_blocks ub
+        WHERE ub.blocker_token = $3 AND ub.blocked_token = d.user_token
+      )
       ORDER BY distance_meters ASC
       LIMIT 50`,
       [lng, lat, userToken, radius_meters]
@@ -112,6 +125,7 @@ router.get('/nearby', async (req: Request, res: Response) => {
       user_token: d.user_token,
       verse_reference: d.verse_reference,
       verse_text: d.verse_text,
+      verse_translation: d.verse_translation,
       custom_message: d.custom_message,
       latitude: d.latitude,
       longitude: d.longitude,
@@ -139,7 +153,7 @@ router.get('/my-pickups', async (req: Request, res: Response) => {
 
     const result = await pool.query(
       `SELECT
-        d.id, d.user_token, d.verse_reference, d.verse_text, d.custom_message,
+        d.id, d.user_token, d.verse_reference, d.verse_text, d.verse_translation, d.custom_message,
         d.pickup_count, d.created_at,
         ST_Y(d.location::geometry) as latitude,
         ST_X(d.location::geometry) as longitude,
@@ -156,6 +170,7 @@ router.get('/my-pickups', async (req: Request, res: Response) => {
       user_token: d.user_token,
       verse_reference: d.verse_reference,
       verse_text: d.verse_text,
+      verse_translation: d.verse_translation,
       custom_message: d.custom_message,
       latitude: d.latitude,
       longitude: d.longitude,
@@ -215,18 +230,34 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { verse_reference, verse_text, custom_message, latitude, longitude } = parsed.data;
 
-    // If custom_message, set pending moderation (stubbed as approved for MVP)
-    const moderationStatus = 'approved';
+    // Resolve translation: must be known, otherwise default.
+    const verse_translation =
+      parsed.data.verse_translation && isKnownTranslation(parsed.data.verse_translation)
+        ? parsed.data.verse_translation
+        : getDefaultTranslation();
+
+    // Moderate custom_message before persisting.
+    let moderationStatus: 'approved' | 'pending' | 'rejected' = 'approved';
+    if (custom_message) {
+      const verdict = moderateText(custom_message);
+      if (verdict.decision === 'rejected') {
+        return res.status(422).json({
+          error: 'Custom message rejected by content policy',
+          reason: verdict.reason,
+        });
+      }
+      if (verdict.decision === 'pending') moderationStatus = 'pending';
+    }
 
     const result = await pool.query(
-      `INSERT INTO drops (user_token, verse_reference, verse_text, custom_message, location, moderation_status)
-      VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7)
+      `INSERT INTO drops (user_token, verse_reference, verse_text, verse_translation, custom_message, location, moderation_status)
+      VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326), $8)
       RETURNING
-        id, user_token, verse_reference, verse_text, custom_message,
+        id, user_token, verse_reference, verse_text, verse_translation, custom_message,
         pickup_count, created_at, moderation_status,
         ST_Y(location::geometry) as latitude,
         ST_X(location::geometry) as longitude`,
-      [userToken, verse_reference, verse_text, custom_message || null, longitude, latitude, moderationStatus]
+      [userToken, verse_reference, verse_text, verse_translation, custom_message || null, longitude, latitude, moderationStatus]
     );
 
     const d = result.rows[0];
@@ -235,6 +266,7 @@ router.post('/', async (req: Request, res: Response) => {
       user_token: d.user_token,
       verse_reference: d.verse_reference,
       verse_text: d.verse_text,
+      verse_translation: d.verse_translation,
       custom_message: d.custom_message,
       latitude: d.latitude,
       longitude: d.longitude,
@@ -292,7 +324,7 @@ router.post('/:id/pickup', async (req: Request, res: Response) => {
     // Return updated drop
     const result = await pool.query(
       `SELECT
-        d.id, d.user_token, d.verse_reference, d.verse_text, d.custom_message,
+        d.id, d.user_token, d.verse_reference, d.verse_text, d.verse_translation, d.custom_message,
         d.pickup_count, d.created_at,
         ST_Y(d.location::geometry) as latitude,
         ST_X(d.location::geometry) as longitude
@@ -302,12 +334,24 @@ router.post('/:id/pickup', async (req: Request, res: Response) => {
     );
 
     const d = result.rows[0];
+
+    // Fire-and-forget pickup notification to the drop's author.
+    // Skip when the picker IS the author (you picked up your own drop).
+    if (d.user_token && d.user_token !== userToken) {
+      void notifyDropPickedUp({
+        dropOwnerToken: d.user_token,
+        verseReference: d.verse_reference,
+        newPickupCount: d.pickup_count,
+      });
+    }
+
     res.json({
       drop: {
         id: d.id,
         user_token: d.user_token,
         verse_reference: d.verse_reference,
         verse_text: d.verse_text,
+        verse_translation: d.verse_translation,
         custom_message: d.custom_message,
         latitude: d.latitude,
         longitude: d.longitude,

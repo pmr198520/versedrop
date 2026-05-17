@@ -1,26 +1,22 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
+  View, Text, StyleSheet, TextInput, Pressable, ScrollView, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { colors, spacing, radii } from '../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, radii, spacing, type, shadows } from '../theme';
 import { searchVerses, createDrop } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import type { VerseResult } from '../types';
 
 export default function DropComposerScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const userLocation = useAppStore((s) => s.userLocation);
   const showToast = useAppStore((s) => s.showToast);
+  const preferredTranslation = useAppStore((s) => s.preferredTranslation);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<VerseResult[]>([]);
@@ -33,13 +29,14 @@ export default function DropComposerScreen() {
     if (!query.trim()) return;
     setIsSearching(true);
     try {
-      const verses = await searchVerses(query);
+      const verses = await searchVerses(query, preferredTranslation);
       setResults(verses);
-    } catch {
+    } catch (err: any) {
       setResults([]);
+      showToast(err?.status === 0 ? "Can't reach server" : 'Search failed');
     }
     setIsSearching(false);
-  }, [query]);
+  }, [query, preferredTranslation, showToast]);
 
   const handleDrop = async () => {
     if (!selected || !userLocation) return;
@@ -48,13 +45,14 @@ export default function DropComposerScreen() {
       await createDrop({
         verse_reference: selected.reference,
         verse_text: selected.text,
+        verse_translation: selected.translation || preferredTranslation,
         latitude: userLocation.lat,
         longitude: userLocation.lng,
       });
       showToast(`Dropped ${selected.reference}`);
       navigation.goBack();
-    } catch {
-      showToast('Failed to drop verse');
+    } catch (err: any) {
+      showToast(err?.status === 0 ? "Can't reach server" : 'Failed to drop verse');
     }
     setIsDropping(false);
   };
@@ -64,334 +62,352 @@ export default function DropComposerScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Drop a Verse</Text>
-        <View style={{ width: 50 }} />
-      </View>
-
-      {/* Search bar */}
-      <View style={styles.searchRow}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search verses... (love, faith, peace)"
-          placeholderTextColor={colors.textMuted}
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-          autoCorrect={false}
-        />
-        <TouchableOpacity
-          style={[styles.searchBtn, isSearching && styles.searchBtnDisabled]}
-          onPress={handleSearch}
-          disabled={isSearching}
-          activeOpacity={0.8}
+      {/* iOS modal header */}
+      <View style={[styles.header, { paddingTop: spacing.md }]}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel and close drop composer"
         >
-          {isSearching ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={styles.searchBtnText}>Search</Text>
-          )}
-        </TouchableOpacity>
+          <Text style={styles.cancelText}>Cancel</Text>
+        </Pressable>
+        <Text style={styles.headerTitle} accessibilityRole="header">New Drop</Text>
+        <View style={styles.translationPill}>
+          <Text style={styles.translationPillText}>{preferredTranslation}</Text>
+        </View>
       </View>
 
-      {/* Results */}
+      {/* iOS rounded search field */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchField}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search verses (love, faith, peace)"
+            placeholderTextColor={colors.textPlaceholder}
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            accessibilityLabel="Search Bible verses"
+          />
+          {query.length > 0 ? (
+            <Pressable
+              onPress={() => { setQuery(''); setResults([]); }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+        <Pressable
+          onPress={handleSearch}
+          disabled={isSearching || !query.trim()}
+          style={({ pressed }) => [
+            styles.searchBtn,
+            (!query.trim() || isSearching) && styles.searchBtnDisabled,
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Search"
+        >
+          {isSearching
+            ? <ActivityIndicator size="small" color={colors.text} />
+            : <Text style={styles.searchBtnText}>Search</Text>}
+        </Pressable>
+      </View>
+
       <ScrollView
         style={styles.resultsScroll}
         contentContainerStyle={styles.resultsContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
         {results.length === 0 && !isSearching && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>{'\u{1F50D}'}</Text>
-            <Text style={styles.emptyText}>
-              Search for a verse to drop at your current location
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="book-outline" size={36} color={colors.textMuted} />
+            </View>
+            <Text style={styles.emptyTitle}>Search for a verse</Text>
+            <Text style={styles.emptyDesc}>
+              Find verses by keyword or reference. We'll show matches from the {preferredTranslation} translation.
             </Text>
           </View>
         )}
 
-        {results.map((v) => {
-          const isSelected = selected?.reference === v.reference;
-          return (
-            <TouchableOpacity
-              key={v.reference}
-              style={[styles.resultCard, isSelected && styles.resultCardSelected]}
-              onPress={() => setSelected(v)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.resultRef}>{v.reference}</Text>
-              <Text style={styles.resultText} numberOfLines={3}>
-                {v.text}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+        {results.length > 0 && (
+          <View style={styles.resultsCard}>
+            {results.map((v, i) => {
+              const isSelected = selected?.reference === v.reference;
+              return (
+                <Pressable
+                  key={v.reference}
+                  onPress={() => setSelected(v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${v.reference}. ${v.text}`}
+                  accessibilityState={{ selected: isSelected }}
+                  style={({ pressed }) => [
+                    styles.resultRow,
+                    i < results.length - 1 && styles.rowSeparator,
+                    isSelected && styles.resultRowSelected,
+                    pressed && !isSelected && styles.pressedRow,
+                  ]}
+                >
+                  <View style={styles.resultText}>
+                    <View style={styles.resultHeader}>
+                      <Text style={styles.resultRef}>{v.reference}</Text>
+                      {v.translation ? <Text style={styles.resultTranslation}>{v.translation}</Text> : null}
+                    </View>
+                    <Text style={styles.resultBody} numberOfLines={3}>{v.text}</Text>
+                  </View>
+                  {isSelected ? (
+                    <View style={styles.checkBadge}>
+                      <Ionicons name="checkmark" size={14} color={colors.white} />
+                    </View>
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
 
-      {/* Selected preview */}
-      {selected && (
-        <View style={styles.selectedPreview}>
-          <View style={styles.selectedCard}>
-            <Text style={styles.selectedRef}>{selected.reference}</Text>
-            <Text style={styles.selectedText} numberOfLines={2}>
-              {selected.text}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Drop button */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.dropBtn, !selected && styles.dropBtnDisabled]}
+      {/* Bottom Drop button */}
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
+        <Pressable
           onPress={() => setShowConfirm(true)}
           disabled={!selected}
-          activeOpacity={0.8}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            !selected && styles.primaryBtnDisabled,
+            pressed && selected && styles.primaryBtnPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={selected ? `Drop ${selected.reference} at your current location` : 'Select a verse first'}
+          accessibilityState={{ disabled: !selected }}
         >
-          <Text style={[styles.dropBtnText, !selected && styles.dropBtnTextDisabled]}>
-            Drop Here
+          <Ionicons
+            name="location"
+            size={16}
+            color={selected ? colors.white : colors.textMuted}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={[styles.primaryBtnText, !selected && styles.primaryBtnTextDisabled]}>
+            {selected ? `Drop ${selected.reference}` : 'Select a verse'}
           </Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
-      {/* Confirmation modal */}
+      {/* Confirm dialog */}
       <Modal
         visible={showConfirm}
         transparent
         animationType="fade"
         onRequestClose={() => setShowConfirm(false)}
       >
-        <TouchableOpacity
-          style={styles.confirmOverlay}
-          activeOpacity={1}
-          onPress={() => setShowConfirm(false)}
-        >
-          <TouchableOpacity
-            style={styles.confirmSheet}
-            activeOpacity={1}
-            onPress={() => {}}
-          >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmSheet}>
             <Text style={styles.confirmTitle}>Drop this verse?</Text>
-
             <View style={styles.confirmVerseCard}>
               <Text style={styles.confirmVerseRef}>{selected?.reference}</Text>
-              <Text style={styles.confirmVerseText}>{selected?.text}</Text>
+              <Text style={styles.confirmVerseText} numberOfLines={6}>{selected?.text}</Text>
+            </View>
+            <View style={styles.confirmLocationRow}>
+              <Ionicons name="location" size={14} color={colors.textSecondary} />
+              <Text style={styles.confirmLocationText}>At your current location</Text>
             </View>
 
-            <Text style={styles.confirmLocationText}>
-              {'\u{1F4CD}'} At your current location
-            </Text>
-
-            <TouchableOpacity
-              style={styles.confirmDropBtn}
+            <Pressable
               onPress={handleDrop}
               disabled={isDropping}
-              activeOpacity={0.8}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                isDropping && styles.primaryBtnDisabled,
+                pressed && styles.primaryBtnPressed,
+                { marginTop: spacing.lg },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Confirm drop"
+              accessibilityState={{ disabled: isDropping }}
             >
-              {isDropping ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <Text style={styles.confirmDropBtnText}>Drop It</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.confirmCancelBtn}
+              {isDropping
+                ? <ActivityIndicator size="small" color={colors.white} />
+                : <Text style={styles.primaryBtnText}>Drop It</Text>}
+            </Pressable>
+            <Pressable
               onPress={() => setShowConfirm(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              style={styles.confirmCancelBtn}
             >
               <Text style={styles.confirmCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
+            </Pressable>
+          </View>
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
   },
-  cancelText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.textSecondary,
+  cancelText: { ...type.body, color: colors.gold, fontWeight: '400' as const, minWidth: 60 },
+  headerTitle: { ...type.headline, color: colors.text },
+  translationPill: {
+    backgroundColor: colors.goldDim,
+    borderColor: colors.goldBorder,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    minWidth: 60,
+    alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-  },
+  translationPillText: { ...type.caption2, color: colors.gold, letterSpacing: 0.5 },
 
   searchRow: {
     flexDirection: 'row',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  searchInput: {
+  searchField: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     backgroundColor: colors.card,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: 14,
+    paddingVertical: 10,
+  },
+  searchInput: {
+    flex: 1,
+    ...type.body,
     color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
+    padding: 0,
   },
   searchBtn: {
-    backgroundColor: colors.gold,
+    backgroundColor: colors.card,
     borderRadius: radii.md,
     paddingHorizontal: spacing.lg,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchBtnDisabled: {
-    opacity: 0.7,
-  },
-  searchBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.white,
-  },
+  searchBtnDisabled: { opacity: 0.5 },
+  searchBtnText: { ...type.subheadline, color: colors.text, fontWeight: '600' as const },
+  pressed: { opacity: 0.7 },
+  pressedRow: { backgroundColor: colors.cardActive },
 
-  resultsScroll: {
-    flex: 1,
-  },
-  resultsContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
-  },
+  resultsScroll: { flex: 1 },
+  resultsContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
 
   emptyState: {
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: spacing.x5l,
     paddingHorizontal: spacing.xl,
   },
-  emptyIcon: {
-    fontSize: 36,
-    marginBottom: spacing.md,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-
-  resultCard: {
+  emptyIconWrap: {
+    width: 64, height: 64, borderRadius: 32,
     backgroundColor: colors.card,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: spacing.lg,
   },
-  resultCardSelected: {
-    borderColor: colors.gold,
-    backgroundColor: colors.goldDim,
-  },
-  resultRef: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.gold,
-    marginBottom: spacing.xs,
-  },
-  resultText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.text,
-    opacity: 0.85,
-  },
+  emptyTitle: { ...type.headline, color: colors.text, marginBottom: spacing.xs },
+  emptyDesc: { ...type.footnote, color: colors.textSecondary, textAlign: 'center', lineHeight: 19 },
 
-  selectedPreview: {
+  resultsCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    ...shadows.sm,
+  },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
   },
-  selectedCard: {
-    backgroundColor: colors.card,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.gold,
+  rowSeparator: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
   },
-  selectedRef: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.gold,
-    marginBottom: spacing.xs,
+  resultRowSelected: { backgroundColor: colors.goldDim },
+  resultText: { flex: 1 },
+  resultHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginBottom: 2,
   },
-  selectedText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.text,
+  resultRef: { ...type.subheadline, color: colors.gold, fontWeight: '700' as const },
+  resultTranslation: { ...type.caption2, color: colors.textMuted, letterSpacing: 0.4 },
+  resultBody: { ...type.footnote, color: colors.text, opacity: 0.9 },
+  checkBadge: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.gold,
+    alignItems: 'center', justifyContent: 'center',
   },
 
   bottomBar: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xxxl,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+    backgroundColor: colors.bg,
   },
-  dropBtn: {
+  primaryBtn: {
+    flexDirection: 'row',
     backgroundColor: colors.gold,
     borderRadius: radii.md,
     paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.gold,
   },
-  dropBtnDisabled: {
+  primaryBtnDisabled: {
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  dropBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  dropBtnTextDisabled: {
-    color: colors.textMuted,
-  },
+  primaryBtnPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
+  primaryBtnText: { ...type.headline, color: colors.white },
+  primaryBtnTextDisabled: { color: colors.textMuted },
 
-  // Confirmation modal
   confirmOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
+    backgroundColor: colors.scrim,
     alignItems: 'center',
-    paddingHorizontal: spacing.xxl,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
   },
   confirmSheet: {
     backgroundColor: colors.bgElevated,
-    borderRadius: radii.lg,
-    padding: spacing.xxl,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
     width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: colors.border,
+    maxWidth: 420,
   },
   confirmTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    ...type.title3,
     color: colors.text,
     textAlign: 'center',
     marginBottom: spacing.lg,
@@ -399,46 +415,23 @@ const styles = StyleSheet.create({
   confirmVerseCard: {
     backgroundColor: colors.card,
     borderRadius: radii.md,
-    padding: spacing.md,
+    padding: spacing.lg,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   confirmVerseRef: {
-    fontSize: 14,
-    fontWeight: '700',
+    ...type.subheadline,
     color: colors.gold,
+    fontWeight: '700' as const,
     marginBottom: spacing.xs,
   },
-  confirmVerseText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.text,
-  },
-  confirmLocationText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  confirmDropBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: radii.md,
-    paddingVertical: 14,
+  confirmVerseText: { ...type.body, color: colors.text },
+  confirmLocationRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    gap: 6,
+    justifyContent: 'center',
   },
-  confirmDropBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  confirmCancelBtn: {
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  confirmCancelText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
+  confirmLocationText: { ...type.footnote, color: colors.textSecondary },
+  confirmCancelBtn: { paddingVertical: spacing.md, alignItems: 'center', marginTop: 4 },
+  confirmCancelText: { ...type.body, color: colors.textSecondary },
 });

@@ -1,0 +1,41 @@
+{
+  "translations": [
+    {
+      "id": "KJV",
+      "name": "King James Version",
+      "year": 1611,
+      "language": "en",
+      "license": "Public domain (Crown copyright in UK)",
+      "attribution": "King James Version, public domain.",
+      "default": true,
+      "file": "kjv.json"
+    },
+    {
+      "id": "WEB",
+      "name": "World English Bible",
+      "year": 2000,
+      "language": "en",
+      "license": "Public domain (CC0)",
+      "attribution": "World English Bible, public domain (CC0).",
+      "file": "web.json"
+    },
+    {
+      "id": "ASV",
+      "name": "American Standard Version",
+      "year": 1901,
+      "language": "en",
+      "license": "Public domain",
+      "attribution": "American Standard Version, public domain.",
+      "file": "asv.json"
+    },
+    {
+      "id": "BSB",
+      "name": "Berean Standard Bible",
+      "year": 2022,
+      "language": "en",
+      "license": "Public domain",
+      "attribution": "Berean Standard Bible, public domain. bereanbible.com",
+      "file": "bsb.json"
+    }
+  ]
+}

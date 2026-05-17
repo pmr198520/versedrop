@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'versedrop_user_token';
+const ONBOARDED_KEY = 'versedrop_onboarded';
 
 function generateToken(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -15,13 +16,16 @@ interface AuthStore {
   userToken: string | null;
   isPlusSubscriber: boolean;
   isReady: boolean;
+  hasOnboarded: boolean;
   initAuth: () => Promise<void>;
+  markOnboarded: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>((set) => ({
   userToken: null,
   isPlusSubscriber: false,
   isReady: false,
+  hasOnboarded: false,
 
   initAuth: async () => {
     try {
@@ -30,11 +34,21 @@ export const useAuthStore = create<AuthStore>((set) => ({
         token = generateToken();
         await SecureStore.setItemAsync(TOKEN_KEY, token);
       }
-      set({ userToken: token, isReady: true });
+      const onboarded = await SecureStore.getItemAsync(ONBOARDED_KEY);
+      set({ userToken: token, hasOnboarded: onboarded === 'true', isReady: true });
     } catch {
       // Fallback for environments without SecureStore
       const token = generateToken();
-      set({ userToken: token, isReady: true });
+      set({ userToken: token, hasOnboarded: false, isReady: true });
+    }
+  },
+
+  markOnboarded: async () => {
+    set({ hasOnboarded: true });
+    try {
+      await SecureStore.setItemAsync(ONBOARDED_KEY, 'true');
+    } catch {
+      // Best-effort persistence
     }
   },
 }));

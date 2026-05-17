@@ -224,16 +224,34 @@ export default function MapScreen() {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Header with branding */}
+      {/* Top bar — brand + live count */}
       <div className="map-header">
         <div className="map-brand">VerseDrop</div>
+        {nearbyDrops.length > 0 && (
+          <div className="nearby-badge">
+            <span className="nearby-dot" />
+            <span><strong>{nearbyDrops.filter(d => !d.is_picked_up).length}</strong> nearby</span>
+            {inRangeCount > 0 && <span><span className="in-range">·</span> <span className="in-range">{inRangeCount} in range</span></span>}
+          </div>
+        )}
       </div>
 
       {/* Verse of the Day */}
       {showVotd && (
         <div className="votd-card" onClick={() => setShowVotd(false)}>
-          <button className="votd-close" onClick={(e) => { e.stopPropagation(); setShowVotd(false); }}>×</button>
-          <div className="votd-label">Verse of the Day</div>
+          <div className="votd-header">
+            <div className="votd-label">Verse of the Day</div>
+            <button
+              className="votd-close"
+              onClick={(e) => { e.stopPropagation(); setShowVotd(false); }}
+              aria-label="Dismiss verse of the day"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
           <div className="votd-text">&ldquo;{votd.text}&rdquo;</div>
           <div className="votd-ref">— {votd.ref}</div>
         </div>
@@ -241,8 +259,8 @@ export default function MapScreen() {
 
       {/* Bottom left controls */}
       <div className="map-bottom-left">
-        <button className="recenter-btn" onClick={handleRecenter} title="Re-center">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <button className="recenter-btn" onClick={handleRecenter} title="Re-center" aria-label="Re-center map on my location">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <line x1="12" y1="2" x2="12" y2="6" />
             <line x1="12" y1="18" x2="12" y2="22" />
@@ -251,20 +269,12 @@ export default function MapScreen() {
           </svg>
         </button>
 
-        <button className="recenter-btn" onClick={() => setShowLocationSetter(true)} title="Set location manually">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <button className="recenter-btn" onClick={() => setShowLocationSetter(true)} title="Set location manually" aria-label="Set location manually">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
             <circle cx="12" cy="10" r="3" />
           </svg>
         </button>
-
-        {nearbyDrops.length > 0 && (
-          <div className="nearby-badge">
-            <span className="nearby-dot" />
-            {nearbyDrops.filter(d => !d.is_picked_up).length} nearby
-            {inRangeCount > 0 && <span style={{ color: 'var(--gold)', marginLeft: 2 }}>· {inRangeCount} in range</span>}
-          </div>
-        )}
       </div>
 
       {/* Location mode indicator */}

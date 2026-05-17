@@ -1,21 +1,42 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import {
+  createBottomTabNavigator,
+  type BottomTabNavigationOptions,
+} from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { colors } from './theme';
+import * as Notifications from 'expo-notifications';
+import { colors, type } from './theme';
 import { useAuthStore } from './store/authStore';
 import { useLocation } from './hooks/useLocation';
+import { usePushRegistration } from './hooks/usePushRegistration';
 import Toast from './components/Toast';
+import ErrorBoundary from './components/ErrorBoundary';
 
 import MapScreen from './screens/MapScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import DropComposerScreen from './screens/DropComposerScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
 
-const DarkTheme = {
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+const NavTheme = {
   ...DefaultTheme,
   dark: true,
   colors: {
@@ -24,12 +45,13 @@ const DarkTheme = {
     background: colors.bg,
     card: colors.bg,
     text: colors.text,
-    border: colors.border,
+    border: colors.separator,
     notification: colors.gold,
   },
 };
 
 type RootStackParamList = {
+  Onboarding: undefined;
   MainTabs: undefined;
   DropComposer: undefined;
 };
@@ -43,47 +65,89 @@ type TabParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
-  const icons: Record<string, string> = {
-    Map: '\u{1F5FA}',
-    Library: '\u{1F4D6}',
-    Profile: '\u{1F464}',
-  };
-  return (
-    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>
-      {icons[label] || '\u{25CF}'}
-    </Text>
-  );
+const TAB_ICONS: Record<keyof TabParamList, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
+  Map:     { active: 'map',       inactive: 'map-outline' },
+  Library: { active: 'book',      inactive: 'book-outline' },
+  Profile: { active: 'person',    inactive: 'person-outline' },
+};
+
+function TabBarBackground() {
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView
+        tint="dark"
+        intensity={80}
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(15,15,18,0.55)' }]}
+      />
+    );
+  }
+  return <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.bg }]} />;
 }
 
 function MainTabs() {
+  const screenOptions: (args: { route: { name: keyof TabParamList } }) => BottomTabNavigationOptions = ({ route }) => ({
+    headerShown: false,
+    tabBarBackground: () => <TabBarBackground />,
+    tabBarStyle: {
+      position: 'absolute',
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.separator,
+      elevation: 0,
+      shadowOpacity: 0,
+      height: Platform.OS === 'ios' ? 86 : 70,
+      paddingTop: 8,
+    },
+    tabBarLabelStyle: { ...type.caption2, marginTop: 4 },
+    tabBarActiveTintColor: colors.gold,
+    tabBarInactiveTintColor: colors.textMuted,
+    tabBarIcon: ({ focused, color, size }) => {
+      const name = TAB_ICONS[route.name][focused ? 'active' : 'inactive'];
+      return <Ionicons name={name} size={size ?? 24} color={color} />;
+    },
+  });
+
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarIcon: ({ focused }) => (
-          <TabIcon label={route.name} focused={focused} />
-        ),
-        tabBarActiveTintColor: colors.gold,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabBarLabel,
-      })}
-    >
-      <Tab.Screen name="Map" component={MapScreen} />
-      <Tab.Screen name="Library" component={LibraryScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+    <Tab.Navigator screenOptions={screenOptions as any}>
+      <Tab.Screen
+        name="Map"
+        component={MapScreen}
+        options={{ tabBarAccessibilityLabel: 'Map tab' }}
+      />
+      <Tab.Screen
+        name="Library"
+        component={LibraryScreen}
+        options={{ tabBarAccessibilityLabel: 'Library tab' }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ tabBarAccessibilityLabel: 'Profile tab' }}
+      />
     </Tab.Navigator>
   );
 }
 
 function AppContent() {
+  const isReady = useAuthStore((s) => s.isReady);
+  const hasOnboarded = useAuthStore((s) => s.hasOnboarded);
   useLocation();
+  usePushRegistration();
+
+  if (!isReady) {
+    return (
+      <View style={[styles.root, styles.center]}>
+        <ActivityIndicator size="large" color={colors.gold} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
-      <NavigationContainer theme={DarkTheme}>
+      <NavigationContainer theme={NavTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {!hasOnboarded && (
+            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          )}
           <Stack.Screen name="MainTabs" component={MainTabs} />
           <Stack.Screen
             name="DropComposer"
@@ -106,31 +170,19 @@ export default function App() {
   }, [initAuth]);
 
   return (
-    <SafeAreaProvider>
-      <AppContent />
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={styles.root}>
+        <SafeAreaProvider>
+          <BottomSheetModalProvider>
+            <AppContent />
+          </BottomSheetModalProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  tabBar: {
-    backgroundColor: colors.bg,
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    paddingTop: 6,
-    height: 85,
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  tabBarLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginTop: 2,
-  },
+  root: { flex: 1, backgroundColor: colors.bg },
+  center: { alignItems: 'center', justifyContent: 'center' },
 });

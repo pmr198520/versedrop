@@ -3,6 +3,7 @@ export interface Drop {
   user_token: string;
   verse_reference: string;
   verse_text: string;
+  verse_translation: string;
   custom_message?: string;
   latitude: number;
   longitude: number;
@@ -21,9 +22,22 @@ export interface Drop {
 export interface DropCreate {
   verse_reference: string;
   verse_text: string;
+  verse_translation?: string;
   custom_message?: string;
   latitude: number;
   longitude: number;
+}
+
+export interface BibleTranslation {
+  id: string;
+  name: string;
+  year?: number;
+  language: string;
+  license: string;
+  attribution: string;
+  default?: boolean;
+  loaded: boolean;
+  verseCount: number;
 }
 
 export interface UserStats {
@@ -45,4 +59,6 @@ export interface Note {
 export interface VerseResult {
   reference: string;
   text: string;
+  book?: string;
+  translation?: string;
 }

@@ -1,0 +1,45 @@
+# Local Postgres+PostGIS + API stack for development against a real database.
+#
+# Quick start:
+#   docker compose up -d db
+#   cd api && npm run migrate    # one-time, applies schema.sql
+#   cd api && npm run dev        # runs api on host with DATABASE_URL set
+#
+# Or run the full stack in containers:
+#   docker compose up --build
+
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: versedrop
+      POSTGRES_PASSWORD: versedrop_dev
+      POSTGRES_DB: versedrop
+    ports:
+      - "5432:5432"
+    volumes:
+      - versedrop_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U versedrop -d versedrop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://versedrop:versedrop_dev@db:5432/versedrop
+      CORS_ORIGINS: "*"
+    ports:
+      - "3001:3001"
+
+volumes:
+  versedrop_db:

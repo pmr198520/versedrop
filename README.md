@@ -68,18 +68,21 @@ npx expo run:android # Requires Android Studio
 
 #### Mobile Setup Notes
 
-1. **Google Maps API Key** — Required for Android maps. Get one from [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and add it to `mobile/app.json` under `android.config.googleMaps.apiKey` and `ios.config.googleMapsApiKey`.
+1. **Environment variables** — Copy `mobile/.env.example` to `mobile/.env` and fill in:
+   - `EXPO_PUBLIC_API_URL` — your backend URL
+     - Android emulator: `http://10.0.2.2:3001`
+     - iOS simulator: `http://localhost:3001`
+     - Physical device: `http://YOUR_LAN_IP:3001`
+   - `GOOGLE_MAPS_API_KEY` — required for Android map rendering. Get one from [Google Cloud Console](https://console.cloud.google.com/apis/credentials). iOS will fall back to Apple Maps if blank.
 
-2. **API URL** — Update `mobile/src/lib/api.ts` with your server's URL:
-   - Android emulator: `http://10.0.2.2:3001` (default)
-   - iOS simulator: `http://localhost:3001`
-   - Physical device: `http://YOUR_LOCAL_IP:3001`
+   Values are read at config time by `mobile/app.config.ts` and exposed to the app via `expo-constants`.
 
-3. **EAS Build** (for production):
+2. **EAS Build** (for production):
    ```bash
    npx eas build --platform ios
    npx eas build --platform android
    ```
+   Set `EXPO_PUBLIC_API_URL` and `GOOGLE_MAPS_API_KEY` as **EAS secrets** rather than committing them.
 
 ## Project Structure
 

@@ -6,6 +6,7 @@ export interface DropRow {
   user_token: string;
   verse_reference: string;
   verse_text: string;
+  verse_translation: string;
   custom_message: string | null;
   latitude: number;
   longitude: number;
@@ -76,6 +77,7 @@ export function getNearbyDrops(lat: number, lng: number, radiusMeters: number, u
         user_token: d.user_token,
         verse_reference: d.verse_reference,
         verse_text: d.verse_text,
+        verse_translation: d.verse_translation,
         custom_message: d.custom_message,
         latitude: d.latitude,
         longitude: d.longitude,
@@ -95,6 +97,7 @@ export function createDrop(data: {
   user_token: string;
   verse_reference: string;
   verse_text: string;
+  verse_translation?: string;
   custom_message?: string;
   latitude: number;
   longitude: number;
@@ -104,6 +107,7 @@ export function createDrop(data: {
     user_token: data.user_token,
     verse_reference: data.verse_reference,
     verse_text: data.verse_text,
+    verse_translation: data.verse_translation || 'KJV',
     custom_message: data.custom_message || null,
     latitude: data.latitude,
     longitude: data.longitude,
